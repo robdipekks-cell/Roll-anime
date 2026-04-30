@@ -1,0 +1,448 @@
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local Window = Fluent:CreateWindow({
+    Title = "Roll An Anime",
+    SubTitle = "By Oorbits",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true, 
+    Theme = "Dark", 
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+-- Tabs
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "home" }),
+    Upgrades = Window:AddTab({ Title = "Upgrades", Icon = "arrow-up" }),
+    ShopUpgrades = Window:AddTab({ Title = "Shop Upgrades", Icon = "shopping-bag" }),
+    Pets = Window:AddTab({ Title = "Pets", Icon = "egg" }),
+    Buy = Window:AddTab({ Title = "Buy", Icon = "shopping-cart" }),
+    Rebirth = Window:AddTab({ Title = "Rebirth", Icon = "refresh-cw" }),
+    Roll = Window:AddTab({ Title = "Roll", Icon = "dices" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+}
+
+-- Services & Variables
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RS = game:GetService("ReplicatedStorage")
+local Network = RS:WaitForChild("Network"):WaitForChild("Client")
+
+local TogglesState = {
+    AutoCollect = false,
+    AutoEquipBest = false,
+    AutoIndex = false,
+    AutoUpgradeAll = false,
+    AutoUpgradeSelected = false,
+    AutoShopUpgrades = false,
+    AutoBuyPet = false,
+    AutoBuyBlocks = false,
+    AutoRebirth = false,
+    AutoRoll = false,
+    AutoRollSmart = false -- New Toggle
+}
+
+-- ==================== SORTING UTILITY ==================== --
+local BlockHierarchy = {
+    "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "Galaxy", 
+    "Quantum", "Ascendant", "Devil", "Heavenly", "Magic", "Bramble", 
+    "TimeBender", "Infinity", "KingSun", "Ouroboros", "MoltenCore", 
+    "ToxicReactor", "King'sMantle", "TheEnd", "Aetherial", "Radiant", 
+    "CelestialEmperor", "Phantom", "Anomaly", "Verca", "Vortex", "BloodCode", 
+    "Doom", "Hellcore", "Verdict", "Pinnacle", "Nothing"
+}
+
+local BlockRanks = {}
+for i, name in ipairs(BlockHierarchy) do
+    BlockRanks[name] = i
+end
+
+local function SortBlockNames(blockNames)
+    table.sort(blockNames, function(a, b)
+        local cleanA = string.gsub(a, "Block$", "")
+        local cleanB = string.gsub(b, "Block$", "")
+        local rankA = BlockRanks[cleanA] or BlockRanks[a] or 999
+        local rankB = BlockRanks[cleanB] or BlockRanks[b] or 999
+        if rankA == rankB then return a < b end
+        return rankA < rankB
+    end)
+    return blockNames
+end
+
+-- Function for Smart Auto Roll logic
+local function GetHighestAvailableBlock()
+    local blocksFolder = LocalPlayer:FindFirstChild("Blocks")
+    if not blocksFolder then return nil end
+
+    local availableBlocks = {}
+    for _, block in pairs(blocksFolder:GetChildren()) do
+        if (block:IsA("NumberValue") or block:IsA("IntValue")) and block.Value > 0 then
+            table.insert(availableBlocks, block.Name)
+        end
+    end
+
+    if #availableBlocks == 0 then return nil end
+
+    -- Sort descending (Highest Tier First)
+    table.sort(availableBlocks, function(a, b)
+        local cleanA = string.gsub(a, "Block$", "")
+        local cleanB = string.gsub(b, "Block$", "")
+        local rankA = BlockRanks[cleanA] or BlockRanks[a] or 0
+        local rankB = BlockRanks[cleanB] or BlockRanks[b] or 0
+        return rankA > rankB 
+    end)
+
+    return availableBlocks[1] -- Returns the highest available block with >0 stock
+end
+
+-- ==================== CORE UTILITIES ==================== --
+local function GetPlayerPlot()
+    local plots = workspace:FindFirstChild("Plots")
+    if not plots then return nil end
+    for _, plot in pairs(plots:GetChildren()) do
+        local owner = plot:FindFirstChild("Owner")
+        if owner then
+            if typeof(owner.Value) == "Instance" and owner.Value == LocalPlayer then
+                return plot
+            elseif tostring(owner.Value) == LocalPlayer.Name then
+                return plot
+            end
+        end
+    end
+    return nil
+end
+
+local function GetAnimeSlots()
+    local myPlot = GetPlayerPlot()
+    local slotList = {}
+    local slotMapping = {} 
+    
+    if myPlot and myPlot:FindFirstChild("Slots") then
+        local animeAssets = RS:FindFirstChild("Assets") and RS.Assets:FindFirstChild("AnimeCharacters")
+        if animeAssets then
+            for _, slot in pairs(myPlot.Slots:GetChildren()) do
+                for _, child in pairs(slot:GetChildren()) do
+                    if animeAssets:FindFirstChild(child.Name) then
+                        local dropdownName = child.Name .. " (Slot " .. slot.Name .. ")"
+                        table.insert(slotList, dropdownName)
+                        slotMapping[dropdownName] = slot.Name
+                    end
+                end
+            end
+        end
+    end
+    return slotList, slotMapping
+end
+
+local function GetStockBlocks()
+    local blockNames = {}
+    local stockFolder = LocalPlayer:FindFirstChild("Stock")
+    if stockFolder then
+        for _, block in pairs(stockFolder:GetChildren()) do
+            if block:IsA("NumberValue") or block:IsA("IntValue") then
+                table.insert(blockNames, block.Name)
+            end
+        end
+    end
+    return SortBlockNames(blockNames)
+end
+
+local function GetInventoryBlocks()
+    local blockNames = {}
+    local blocksFolder = LocalPlayer:FindFirstChild("Blocks")
+    if blocksFolder then
+        for _, block in pairs(blocksFolder:GetChildren()) do
+            table.insert(blockNames, block.Name)
+        end
+    end
+    return SortBlockNames(blockNames)
+end
+
+local SelectedUpgradeSlots = {}
+local CurrentSlotMapping = {}
+local SelectedPets = {}
+local SelectedBlocksToBuy = {}
+local SelectedShopUpgrades = {}
+local BuyAmount = 1
+local SelectedRollBlock = ""
+
+-- ==================== MAIN TAB ==================== --
+Tabs.Main:AddToggle("AutoCollectToggle", { Title = "Auto Collect Cash", Default = false, Callback = function(state) TogglesState.AutoCollect = state end })
+Tabs.Main:AddToggle("AutoEquipBestToggle", { Title = "Auto Equip Best", Default = false, Callback = function(state) TogglesState.AutoEquipBest = state end })
+Tabs.Main:AddToggle("AutoIndexToggle", { Title = "Auto Index Rewards", Default = false, Callback = function(state) TogglesState.AutoIndex = state end })
+
+task.spawn(function()
+    while true do
+        if TogglesState.AutoCollect then
+            for i = 1, 100 do
+                task.spawn(function() pcall(function() Network:WaitForChild("ClaimCash"):FireServer(tostring(i)) end) end)
+            end
+            task.wait(1)
+        else task.wait(0.1) end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if TogglesState.AutoEquipBest then
+            pcall(function() Network:WaitForChild("EquipBestEntities"):InvokeServer() end)
+            task.wait(2)
+        else task.wait(0.1) end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if TogglesState.AutoIndex then
+            pcall(function() Network:WaitForChild("ClaimAllIndexRewards"):FireServer() end)
+            task.wait(2)
+        else task.wait(0.1) end
+    end
+end)
+
+-- ==================== UPGRADES TAB ==================== --
+Tabs.Upgrades:AddToggle("AutoUpgradeAllToggle", {
+    Title = "Auto Upgrade All",
+    Description = "Upgrades Units",
+    Default = false,
+    Callback = function(state) TogglesState.AutoUpgradeAll = state end
+})
+
+Tabs.Upgrades:AddToggle("AutoUpgradeSelectedToggle", { Title = "Auto Upgrade Selected Slots", Default = false, Callback = function(state) TogglesState.AutoUpgradeSelected = state end })
+
+local AnimeDropdown = Tabs.Upgrades:AddDropdown("AnimeDropdown", { Title = "Select Anime Units", Values = {}, Multi = true, Default = {} })
+
+AnimeDropdown:OnChanged(function(value)
+    SelectedUpgradeSlots = {}
+    for name, isSelected in pairs(value) do
+        if isSelected and CurrentSlotMapping[name] then
+            table.insert(SelectedUpgradeSlots, CurrentSlotMapping[name])
+        end
+    end
+end)
+
+Tabs.Upgrades:AddButton({
+    Title = "Refresh Anime Slots",
+    Callback = function() 
+        local s, m = GetAnimeSlots()
+        CurrentSlotMapping = m
+        AnimeDropdown:SetValues(s)
+    end
+})
+
+task.spawn(function()
+    while true do
+        if TogglesState.AutoUpgradeAll then
+            for i = 1, 20 do
+                if not TogglesState.AutoUpgradeAll then break end
+                pcall(function() Network:WaitForChild("UpgradeBrainrot"):InvokeServer(tostring(i)) end)
+                task.wait(0.2) 
+            end
+        else task.wait(0.1) end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if TogglesState.AutoUpgradeSelected and #SelectedUpgradeSlots > 0 then
+            for _, slotNum in pairs(SelectedUpgradeSlots) do
+                task.spawn(function() pcall(function() Network:WaitForChild("UpgradeBrainrot"):InvokeServer(tostring(slotNum)) end) end)
+            end
+            task.wait(0.2)
+        else task.wait(0.1) end
+    end
+end)
+
+-- ==================== SHOP UPGRADES TAB ==================== --
+local ShopUpgradeMap = {
+    ["Coin Boost"] = "GlobalIncome",
+    ["Fortune Boost"] = "PlayerLuck",
+    ["Stock Boost"] = "ShopStock",
+    ["Mutation Boost"] = "MutationChance"
+}
+
+Tabs.ShopUpgrades:AddToggle("AutoShopUpgradesToggle", {
+    Title = "Auto Upgrades",
+    Default = false,
+    Callback = function(state) TogglesState.AutoShopUpgrades = state end
+})
+
+local ShopDropdown = Tabs.ShopUpgrades:AddDropdown("ShopDropdown", {
+    Title = "Select Boosts",
+    Values = {"Coin Boost", "Fortune Boost", "Stock Boost", "Mutation Boost"},
+    Multi = true,
+    Default = {},
+})
+
+ShopDropdown:OnChanged(function(value)
+    SelectedShopUpgrades = {}
+    for displayName, isSelected in pairs(value) do
+        if isSelected then table.insert(SelectedShopUpgrades, ShopUpgradeMap[displayName]) end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if TogglesState.AutoShopUpgrades and #SelectedShopUpgrades > 0 then
+            for _, internalName in pairs(SelectedShopUpgrades) do
+                if not TogglesState.AutoShopUpgrades then break end
+                pcall(function() Network:WaitForChild("PurchaseUpgrade"):InvokeServer(internalName) end)
+                task.wait(0.1) 
+            end
+            task.wait(0.2) 
+        else task.wait(0.1) end
+    end
+end)
+
+-- ==================== PETS TAB ==================== --
+local PetOptions = {["Basic"]="Basic - 25k",["Coconut"]="Coconut - 4m",["Crocodile"]="Crocodile - 100m",["Yeti"]="Yeti - 5b",["Cupcake"]="Cupcake - 2t",["GoldenBasic"]="GoldenBasic - 5qd"}
+local PetDisplayNames = {}
+for _, display in pairs(PetOptions) do table.insert(PetDisplayNames, display) end
+
+Tabs.Pets:AddToggle("AutoBuyPetToggle", { Title = "Auto Buy Egg", Default = false, Callback = function(state) TogglesState.AutoBuyPet = state end })
+local PetsDropdown = Tabs.Pets:AddDropdown("PetsDropdown", { Title = "Select Eggs", Values = PetDisplayNames, Multi = true, Default = {} })
+
+PetsDropdown:OnChanged(function(value)
+    SelectedPets = {}
+    for rawName, displayName in pairs(PetOptions) do
+        if value[displayName] then table.insert(SelectedPets, rawName) end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if TogglesState.AutoBuyPet and #SelectedPets > 0 then
+            for _, petName in pairs(SelectedPets) do
+                task.spawn(function() pcall(function() Network:WaitForChild("Hatch"):InvokeServer(petName, 1) end) end)
+            end
+            task.wait() 
+        else task.wait(0.1) end
+    end
+end)
+
+-- ==================== BUY TAB ==================== --
+Tabs.Buy:AddToggle("AutoBuyBlocksToggle", { Title = "Auto Buy Blocks", Default = false, Callback = function(state) TogglesState.AutoBuyBlocks = state end })
+
+local BlocksDropdown = Tabs.Buy:AddDropdown("BlocksDropdown", { Title = "Select Blocks (Sorted)", Values = GetStockBlocks(), Multi = true, Default = {} })
+
+BlocksDropdown:OnChanged(function(value)
+    SelectedBlocksToBuy = {}
+    for name, isSelected in pairs(value) do
+        if isSelected then table.insert(SelectedBlocksToBuy, name) end
+    end
+end)
+
+local AmountInput = Tabs.Buy:AddInput("BuyAmountInput", {
+    Title = "Amount to Buy",
+    Default = "1",
+    Numeric = true,
+    Finished = false,
+    Callback = function(value) BuyAmount = tonumber(value) or 1 end
+})
+
+local StockLabel = Tabs.Buy:AddParagraph({ Title = "Live Stock Tracker", Content = "Fetching data..." })
+
+task.spawn(function()
+    while task.wait(1) do
+        local contentStr = ""
+        local stockFolder = LocalPlayer:FindFirstChild("Stock")
+        if stockFolder and #SelectedBlocksToBuy > 0 then
+            for _, blockName in pairs(SelectedBlocksToBuy) do
+                local valObj = stockFolder:FindFirstChild(blockName)
+                if valObj then contentStr = contentStr .. blockName .. ": " .. tostring(valObj.Value) .. "\n" end
+            end
+        elseif #SelectedBlocksToBuy == 0 then
+            contentStr = "Select blocks to monitor stock."
+        end
+        StockLabel:SetDesc(contentStr)
+    end
+end)
+
+Tabs.Buy:AddButton({ Title = "Refresh Block List", Callback = function() BlocksDropdown:SetValues(GetStockBlocks()) end })
+
+task.spawn(function()
+    while true do
+        if TogglesState.AutoBuyBlocks and #SelectedBlocksToBuy > 0 and BuyAmount > 0 then
+            for _, blockName in pairs(SelectedBlocksToBuy) do
+                task.spawn(function() pcall(function() Network:WaitForChild("PurchaseMaxItems"):InvokeServer(blockName, BuyAmount) end) end)
+            end
+            task.wait(0.5)
+        else task.wait(0.1) end
+    end
+end)
+
+-- ==================== REBIRTH TAB ==================== --
+Tabs.Rebirth:AddToggle("AutoRebirthToggle", { Title = "Auto Rebirth", Default = false, Callback = function(state) TogglesState.AutoRebirth = state end })
+task.spawn(function()
+    while true do
+        if TogglesState.AutoRebirth then
+            pcall(function() Network:WaitForChild("Rebirth"):InvokeServer() end)
+            task.wait(1)
+        else task.wait(0.1) end
+    end
+end)
+
+-- ==================== ROLL TAB ==================== --
+Tabs.Roll:AddToggle("AutoRollToggle", { 
+    Title = "Auto Roll (Manual Select)", 
+    Default = false, 
+    Callback = function(state) TogglesState.AutoRoll = state end 
+})
+
+Tabs.Roll:AddToggle("AutoRollSmartToggle", { 
+    Title = "Auto Roll (Smart)", 
+    Description = "Automatically rolls highest tier block you own",
+    Default = false, 
+    Callback = function(state) TogglesState.AutoRollSmart = state end 
+})
+
+local RollDropdown = Tabs.Roll:AddDropdown("RollBlockDropdown", { Title = "Select Block to Roll", Values = GetInventoryBlocks(), Multi = false, Default = "" })
+
+RollDropdown:OnChanged(function(value) SelectedRollBlock = value end)
+
+Tabs.Roll:AddButton({ Title = "Refresh Inventory Blocks", Callback = function() RollDropdown:SetValues(GetInventoryBlocks()) end })
+
+-- Standard Manual Roll
+task.spawn(function()
+    while true do
+        if TogglesState.AutoRoll and SelectedRollBlock ~= "" and not TogglesState.AutoRollSmart then
+            pcall(function() Network:WaitForChild("RollBlock"):InvokeServer(SelectedRollBlock) end)
+            task.wait() 
+        else task.wait(0) end
+    end
+end)
+
+-- Smart Auto Roll
+task.spawn(function()
+    while true do
+        if TogglesState.AutoRollSmart then
+            local highestBlock = GetHighestAvailableBlock()
+            if highestBlock then
+                pcall(function() Network:WaitForChild("RollBlock"):InvokeServer(highestBlock) end)
+                task.wait() -- Fast firing to roll quickly
+            else
+                task.wait(0) -- Wait a moment if there are no blocks to prevent crashing
+            end
+        else 
+            task.wait(0) 
+        end
+    end
+end)
+
+-- ==================== SETTINGS / SAVING ==================== --
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+
+InterfaceManager:SetFolder("ScriptHubByOorbits")
+SaveManager:SetFolder("ScriptHubByOorbits/Configs")
+
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+
+Window:SelectTab(1)
+Fluent:Notify({ Title = "Script Hub by Oorbits", Content = "Smart Roll Activated.", Duration = 5 })
+SaveManager:LoadAutoloadConfig()
