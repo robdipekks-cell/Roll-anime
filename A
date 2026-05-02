@@ -39,10 +39,40 @@ local TogglesState = {
     AutoShopUpgrades = false,
     AutoBuyPet = false,
     AutoBuyBlocks = false,
+    AutoBuySmart = false, -- New Toggle
     AutoRebirth = false,
     AutoRoll = false,
-    AutoRollSmart = false -- New Toggle
+    AutoRollSmart = false 
 }
+
+-- ==================== NUMBER PARSING UTILITY ==================== --
+local function ParseSuffixString(str)
+    if type(str) == "number" then return str end
+    if not str then return 0 end
+    
+    -- Clean the string: remove $, commas, spaces, and make lowercase
+    str = string.lower(tostring(str))
+    str = string.gsub(str, "[$%s,]", "")
+
+    -- Extract numerical part and optional suffix
+    local numberPart = string.match(str, "^[%d%.]+")
+    local suffixPart = string.match(str, "[a-z]+$")
+
+    if not numberPart then return 0 end
+    local num = tonumber(numberPart) or 0
+
+    -- Standard Roblox suffix dictionary
+    local Suffixes = {
+        k = 1e3, m = 1e6, b = 1e9, t = 1e12, q = 1e15, qd = 1e15, qi = 1e18, 
+        sx = 1e21, sp = 1e24, oc = 1e27, no = 1e30, dc = 1e33
+    }
+
+    if suffixPart and Suffixes[suffixPart] then
+        num = num * Suffixes[suffixPart]
+    end
+
+    return num
+end
 
 -- ==================== SORTING UTILITY ==================== --
 local BlockHierarchy = {
@@ -71,7 +101,7 @@ local function SortBlockNames(blockNames)
     return blockNames
 end
 
--- Function for Smart Auto Roll logic
+-- ==================== CORE UTILITIES ==================== --
 local function GetHighestAvailableBlock()
     local blocksFolder = LocalPlayer:FindFirstChild("Blocks")
     if not blocksFolder then return nil end
@@ -94,10 +124,56 @@ local function GetHighestAvailableBlock()
         return rankA > rankB 
     end)
 
-    return availableBlocks[1] -- Returns the highest available block with >0 stock
+    return availableBlocks[1] 
 end
 
--- ==================== CORE UTILITIES ==================== --
+local function GetMostExpensiveAffordableBlock()
+    -- Safely navigate to the ItemShop UI
+    local mainGui = LocalPlayer.PlayerGui:FindFirstChild("Main")
+    if not mainGui then return nil end
+    local frames = mainGui:FindFirstChild("Frames")
+    if not frames then return nil end
+    local itemShop = frames:FindFirstChild("ItemShop")
+    if not itemShop then return nil end
+    local scrollingFrame = itemShop:FindFirstChild("ScrollingFrame")
+    if not scrollingFrame then return nil end
+
+    -- Parse Player Coins
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if not leaderstats or not leaderstats:FindFirstChild("Coins") then return nil end
+    local myCoins = ParseSuffixString(leaderstats.Coins.Value)
+
+    local bestBlockName = nil
+    local highestPrice = -1
+
+    -- Iterate UI to find highest affordable
+    for _, child in pairs(scrollingFrame:GetChildren()) do
+        if child:IsA("Frame") or child:IsA("ImageLabel") then
+            -- Navigate deep into the button structure
+            local buttons = child:FindFirstChild("Buttons")
+            if buttons then
+                local purchase = buttons:FindFirstChild("Purchase")
+                if purchase then
+                    local button = purchase:FindFirstChild("Button")
+                    if button then
+                        local textLabel = button:FindFirstChild("TextLabel")
+                        if textLabel then
+                            local price = ParseSuffixString(textLabel.Text)
+                            
+                            if price <= myCoins and price > highestPrice then
+                                highestPrice = price
+                                bestBlockName = child.Name -- Child name is typically the block name
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestBlockName
+end
+
 local function GetPlayerPlot()
     local plots = workspace:FindFirstChild("Plots")
     if not plots then return nil end
@@ -323,7 +399,14 @@ task.spawn(function()
 end)
 
 -- ==================== BUY TAB ==================== --
-Tabs.Buy:AddToggle("AutoBuyBlocksToggle", { Title = "Auto Buy Blocks", Default = false, Callback = function(state) TogglesState.AutoBuyBlocks = state end })
+Tabs.Buy:AddToggle("AutoBuyBlocksToggle", { Title = "Auto Buy Blocks (Manual)", Default = false, Callback = function(state) TogglesState.AutoBuyBlocks = state end })
+
+Tabs.Buy:AddToggle("AutoBuySmartToggle", { 
+    Title = "Auto Buy (Smart)", 
+    Description = "Automatically buys the highest tier block you can afford",
+    Default = false, 
+    Callback = function(state) TogglesState.AutoBuySmart = state end 
+})
 
 local BlocksDropdown = Tabs.Buy:AddDropdown("BlocksDropdown", { Title = "Select Blocks (Sorted)", Values = GetStockBlocks(), Multi = true, Default = {} })
 
@@ -362,14 +445,32 @@ end)
 
 Tabs.Buy:AddButton({ Title = "Refresh Block List", Callback = function() BlocksDropdown:SetValues(GetStockBlocks()) end })
 
+-- Manual Auto Buy Loop
 task.spawn(function()
     while true do
-        if TogglesState.AutoBuyBlocks and #SelectedBlocksToBuy > 0 and BuyAmount > 0 then
+        if TogglesState.AutoBuyBlocks and #SelectedBlocksToBuy > 0 and BuyAmount > 0 and not TogglesState.AutoBuySmart then
             for _, blockName in pairs(SelectedBlocksToBuy) do
                 task.spawn(function() pcall(function() Network:WaitForChild("PurchaseMaxItems"):InvokeServer(blockName, BuyAmount) end) end)
             end
             task.wait(0.5)
         else task.wait(0.1) end
+    end
+end)
+
+-- Smart Auto Buy Loop
+task.spawn(function()
+    while true do
+        if TogglesState.AutoBuySmart then
+            local bestBlockToBuy = GetMostExpensiveAffordableBlock()
+            if bestBlockToBuy then
+                pcall(function() Network:WaitForChild("PurchaseMaxItems"):InvokeServer(bestBlockToBuy, BuyAmount) end)
+                task.wait(0.5) -- Small delay to allow coin balance to update
+            else
+                task.wait(0.5) -- Wait if nothing affordable is found
+            end
+        else
+            task.wait(0.1)
+        end
     end
 end)
 
@@ -438,11 +539,4 @@ SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({})
 
 InterfaceManager:SetFolder("ScriptHubByOorbits")
-SaveManager:SetFolder("ScriptHubByOorbits/Configs")
-
-InterfaceManager:BuildInterfaceSection(Tabs.Settings)
-SaveManager:BuildConfigSection(Tabs.Settings)
-
-Window:SelectTab(1)
-Fluent:Notify({ Title = "Script Hub by Oorbits", Content = "Smart Roll Activated.", Duration = 5 })
-SaveManager:LoadAutoloadConfig()
+Save
