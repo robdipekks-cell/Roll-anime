@@ -540,3 +540,11 @@ SaveManager:SetIgnoreIndexes({})
 
 InterfaceManager:SetFolder("ScriptHubByOorbits")
 Save
+
+Window:SelectTab(1)
+
+Fluent:Notify({
+    Title = "Oorbits Hub",
+    Content = "Script successfully loaded",
+    Duration = 5
+})
