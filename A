@@ -1,16 +1,20 @@
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Roll An Anime",
-    SubTitle = "By Oorbits",
-    TabWidth = 160,
-    Size = UDim2.fromOffset(580, 460),
-    Acrylic = true, 
-    Theme = "Dark", 
-    MinimizeKey = Enum.KeyCode.LeftControl
+Title = "Roll An Anime",
+SubTitle = "By Oorbits",
+TabWidth = 160,
+Size = UDim2.fromOffset(580, 460),
+Acrylic = true,
+Theme = "Dark",
+MinimizeKey = Enum.KeyCode.LeftControl
+
 })
+
 
 -- Tabs
 local Tabs = {
@@ -533,18 +537,18 @@ task.spawn(function()
 end)
 
 -- ==================== SETTINGS / SAVING ==================== --
+
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({})
 
 InterfaceManager:SetFolder("ScriptHubByOorbits")
-Save
+SaveManager:SetFolder("ScriptHubByOorbits/Configs")
+
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
 
 Window:SelectTab(1)
-
-Fluent:Notify({
-    Title = "Oorbits Hub",
-    Content = "Script successfully loaded",
-    Duration = 5
-})
+Fluent:Notify({ Title = "Script Hub by Oorbits", Content = "Smart Roll Activated.", Duration = 5 })
+SaveManager:LoadAutoloadConfig() 
