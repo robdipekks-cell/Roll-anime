@@ -318,9 +318,9 @@ task.spawn(function()
             for i = 1, 20 do
                 if not TogglesState.AutoUpgradeAll then break end
                 pcall(function() Network:WaitForChild("UpgradeBrainrot"):InvokeServer(tostring(i)) end)
-                task.wait(0.5) 
+                task.wait(1) 
             end
-        else task.wait(0.1) end
+        else task.wait(0.5) end
     end
 end)
 
@@ -330,8 +330,8 @@ task.spawn(function()
             for _, slotNum in pairs(SelectedUpgradeSlots) do
                 task.spawn(function() pcall(function() Network:WaitForChild("UpgradeBrainrot"):InvokeServer(tostring(slotNum)) end) end)
             end
-            task.wait(0.6)
-        else task.wait(0.1) end
+            task.wait(1)
+        else task.wait(0.5) end
     end
 end)
 
