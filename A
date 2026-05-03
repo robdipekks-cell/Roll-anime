@@ -283,16 +283,30 @@ task.spawn(function()
 end)
 
 -- ==================== UPGRADES TAB ==================== --
+-- Cache the remote ONCE outside loops (fixes reliability + performance)
+local UpgradeBrainrot = Network:WaitForChild("UpgradeBrainrot")
+
 Tabs.Upgrades:AddToggle("AutoUpgradeAllToggle", {
     Title = "Auto Upgrade All",
-    Description = "Upgrades Units",
+    Description = "Upgrades all 20 unit slots sequentially with 0.5s cooldown",
     Default = false,
     Callback = function(state) TogglesState.AutoUpgradeAll = state end
 })
 
-Tabs.Upgrades:AddToggle("AutoUpgradeSelectedToggle", { Title = "Auto Upgrade Selected Slots", Default = false, Callback = function(state) TogglesState.AutoUpgradeSelected = state end })
+Tabs.Upgrades:AddToggle("AutoUpgradeSelectedToggle", {
+    Title = "Auto Upgrade Selected Slots",
+    Default = false,
+    Callback = function(state) TogglesState.AutoUpgradeSelected = state end
+})
 
-local AnimeDropdown = Tabs.Upgrades:AddDropdown("AnimeDropdown", { Title = "Select Anime Units", Values = {}, Multi = true, Default = {} })
+local AnimeDropdown = Tabs.Upgrades:AddDropdown("AnimeDropdown", {
+    Title = "Select Anime Units",
+    Values = {},
+    Multi = true,
+    Default = {},
+    MaxVisibleItems = 6,      -- limits height so it becomes scrollable
+    ScrollingEnabled = true,  -- enables scroll in the dropdown list
+})
 
 AnimeDropdown:OnChanged(function(value)
     SelectedUpgradeSlots = {}
@@ -305,33 +319,44 @@ end)
 
 Tabs.Upgrades:AddButton({
     Title = "Refresh Anime Slots",
-    Callback = function() 
+    Callback = function()
         local s, m = GetAnimeSlots()
         CurrentSlotMapping = m
         AnimeDropdown:SetValues(s)
     end
 })
 
+-- AUTO UPGRADE ALL: sequential with 0.5s cooldown between each slot
 task.spawn(function()
     while true do
         if TogglesState.AutoUpgradeAll then
             for i = 1, 20 do
-                if not TogglesState.AutoUpgradeAll then break end
-                pcall(function() Network:WaitForChild("UpgradeBrainrot"):InvokeServer(tostring(i)) end)
-                task.wait(1) 
+                if not TogglesState.AutoUpgradeAll then break end  -- respect toggle mid-loop
+                pcall(function()
+                    UpgradeBrainrot:InvokeServer(tostring(i))
+                end)
+                task.wait(0.5)  -- 0.5s cooldown between each brainrot
             end
-        else task.wait(0.5) end
+        else
+            task.wait(0.5)
+        end
     end
 end)
 
+-- AUTO UPGRADE SELECTED: sequential (NOT parallel spawns) with 0.5s cooldown between each
 task.spawn(function()
     while true do
         if TogglesState.AutoUpgradeSelected and #SelectedUpgradeSlots > 0 then
-            for _, slotNum in pairs(SelectedUpgradeSlots) do
-                task.spawn(function() pcall(function() Network:WaitForChild("UpgradeBrainrot"):InvokeServer(tostring(slotNum)) end) end)
+            for _, slotNum in ipairs(SelectedUpgradeSlots) do  -- ipairs for ordered iteration
+                if not TogglesState.AutoUpgradeSelected then break end  -- respect toggle mid-loop
+                pcall(function()
+                    UpgradeBrainrot:InvokeServer(tostring(slotNum))
+                end)
+                task.wait(0.5)  -- 0.5s cooldown between each brainrot
             end
-            task.wait(1)
-        else task.wait(0.5) end
+        else
+            task.wait(0.5)
+        end
     end
 end)
 
