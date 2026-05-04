@@ -539,7 +539,7 @@ local SelectedEvents = {["Any"] = true} -- Stores the state as a dictionary
 local EventDropdown = Tabs.Roll:AddDropdown("EventRollDropdown", { 
     Title = "Select Event Conditions", 
     Description = "Auto-rolls when ANY of the selected events are active",
-    Values = {"Any", "Aura", "Candy", "Disco", "Frost", "Hacker", "Lava", "Toxic", "Northern Lights", "Starfall", "Solar Surge", "Outer Space", "Eclipse", "Harvest Night", "Crimson Moon", "Admin Abuse", "None"}, 
+    Values = {"Any", "Aura", "Candy", "Disco", "Frost", "Hacker", "Lava", "Toxic", "Northern Lights", "Starfall", "Solar Surge", "Outer Space", "Eclipse", "Harvest Night", "Crimson Moon", "Umbral", "Anomaly", "Admin Abuse", "None"}, 
     Multi = true, -- Changed to true for multi-selection
     Default = {"Any"} -- Default must be a table when Multi is true
 })
