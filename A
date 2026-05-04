@@ -534,13 +534,50 @@ RollDropdown:OnChanged(function(value) SelectedRollBlock = value end)
 
 Tabs.Roll:AddButton({ Title = "Refresh Inventory Blocks", Callback = function() RollDropdown:SetValues(GetInventoryBlocks()) end })
 
+-- NEW: Multi-Select Event Dropdown and Logic
+local SelectedEvents = {["Any"] = true} -- Stores the state as a dictionary
+local EventDropdown = Tabs.Roll:AddDropdown("EventRollDropdown", { 
+    Title = "Select Event Conditions", 
+    Description = "Auto-rolls when ANY of the selected events are active",
+    Values = {"Any", "Aura", "Candy", "Disco", "Frost", "Hacker", "Lava", "Toxic", "Northern Lights", "Starfall", "Solar Surge", "Outer Space", "Eclipse", "Harvest Night", "Crimson Moon", "Admin Abuse", "None"}, 
+    Multi = true, -- Changed to true for multi-selection
+    Default = {"Any"} -- Default must be a table when Multi is true
+})
+
+EventDropdown:OnChanged(function(value) 
+    -- The UI library passes a table of toggled items, e.g. {["Aura"] = true, ["Frost"] = true}
+    SelectedEvents = value 
+end)
+
+-- Safely checks the workspace value against multiple selected events
+local function IsEventActive()
+    if SelectedEvents["Any"] then return true end -- If "Any" is checked, bypass the check and roll
+    
+    local success, eventValue = pcall(function() 
+        return tostring(workspace._Data.Event.Value) 
+    end)
+    
+    -- Check if we successfully got the event, and if it is currently selected in the multi-dropdown
+    if success and eventValue then
+        return SelectedEvents[eventValue] == true
+    end
+    
+    return false
+end
+
 -- Standard Manual Roll
 task.spawn(function()
     while true do
         if TogglesState.AutoRoll and SelectedRollBlock ~= "" and not TogglesState.AutoRollSmart then
-            pcall(function() Network:WaitForChild("RollBlock"):InvokeServer(SelectedRollBlock) end)
-            task.wait() 
-        else task.wait(0) end
+            if IsEventActive() then
+                pcall(function() Network:WaitForChild("RollBlock"):InvokeServer(SelectedRollBlock) end)
+                task.wait() 
+            else
+                task.wait(0) -- Waits if none of the selected events are active
+            end
+        else 
+            task.wait(0) 
+        end
     end
 end)
 
@@ -548,12 +585,16 @@ end)
 task.spawn(function()
     while true do
         if TogglesState.AutoRollSmart then
-            local highestBlock = GetHighestAvailableBlock()
-            if highestBlock then
-                pcall(function() Network:WaitForChild("RollBlock"):InvokeServer(highestBlock) end)
-                task.wait() -- Fast firing to roll quickly
+            if IsEventActive() then
+                local highestBlock = GetHighestAvailableBlock()
+                if highestBlock then
+                    pcall(function() Network:WaitForChild("RollBlock"):InvokeServer(highestBlock) end)
+                    task.wait() -- Fast firing to roll quickly
+                else
+                    task.wait(0) -- Wait a moment if there are no blocks to prevent crashing
+                end
             else
-                task.wait(0) -- Wait a moment if there are no blocks to prevent crashing
+                task.wait(0) -- Waits if none of the selected events are active
             end
         else 
             task.wait(0) 
